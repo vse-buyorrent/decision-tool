@@ -1,0 +1,2536 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+ Buy or rent decision tool
+ A Czech-context financial comparison tool, accompanying David Bartoš's
+ master's thesis (2026).
+================================================================================
+
+ EDITING THIS FILE
+ -----------------
+ Two zones, separated by clearly marked banners in the inline <script>:
+
+ 1) CONFIG block (near the top) — baseline values, regulatory thresholds,
+    market constants. Edit here to recalibrate. No model logic touched.
+
+ 2) Calculation logic (further down, between two banner comments labelled
+    CALCULATION LOGIC) — the financial model itself. Editing this requires
+    understanding the framework documented in Chapter 4 of the thesis.
+
+ DEPLOYMENT (for new maintainers)
+ --------------------------------
+ The tool is hosted via GitHub Pages on a dedicated account created for
+ long-term maintenance. To take over:
+
+ 1) Obtain the dedicated account credentials (email + password + 2FA recovery
+    codes) from the previous maintainer or the supervising department.
+ 2) Log into GitHub at https://github.com using those credentials.
+ 3) Open the repository hosting this tool. Edit the file in the browser, or
+    clone the repository and edit locally with a text editor.
+ 4) Commit the change. GitHub Pages re-deploys automatically; the live URL
+    refreshes within a minute.
+
+ IMPORTANT: GitHub deactivates accounts after extended inactivity. Make at
+ least one commit every 18 months — even a trivial whitespace change — to
+ keep the account live. Without that, the tool's URL eventually disappears.
+
+ If GitHub access is lost, the file can be redeployed in seconds via Netlify
+ Drop (https://app.netlify.com/drop): rename to index.html and drag onto the
+ page. The URL changes but the tool itself is preserved.
+
+================================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buy or rent decision tool</title>
+<meta name="description" content="A Czech-context financial comparison tool for the buy-versus-rent decision.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+:root {
+  --bg: #FFFFFF;
+  --bg-soft: #F8FAFC;
+  --bg-panel: #FFFFFF;
+  --ink: #0F172A;
+  --ink-soft: #334155;
+  --muted: #64748B;
+  --line: #E2E8F0;
+  --line-soft: #F1F5F9;
+  --accent: #1E3A8A;
+  --accent-soft: rgba(30, 58, 138, 0.08);
+  --buy: #1E3A8A;
+  --buy-soft: rgba(30, 58, 138, 0.08);
+  --rent: #0F766E;
+  --rent-soft: rgba(15, 118, 110, 0.08);
+  --macro: #78716C;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'tnum';
+}
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2.5rem 2rem 4rem;
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+h1 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: clamp(1.875rem, 4vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+h1 em { font-style: normal; font-weight: 500; }
+h2 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 1.375rem;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+h3 {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.lede {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  max-width: 62ch;
+  font-weight: 400;
+}
+
+header.hero {
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2.5rem;
+}
+.hero-title {
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+}
+.hero-sub {
+  font-size: 0.9375rem;
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0.005em;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+}
+.layout > section:first-child {
+  position: sticky;
+  top: 1.5rem;
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+.layout > section:first-child::-webkit-scrollbar {
+  width: 8px;
+}
+.layout > section:first-child::-webkit-scrollbar-track {
+  background: var(--line-soft);
+  border-radius: 4px;
+}
+.layout > section:first-child::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+.layout > section:first-child::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; gap: 2.5rem; }
+  .layout > section:first-child {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1.75rem;
+}
+.panel-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid var(--ink);
+  margin-bottom: 1.5rem;
+}
+
+.panel-note {
+  margin-bottom: 1.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-soft);
+  border-left: 3px solid var(--muted);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.375rem;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink-soft);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: var(--sans);
+  cursor: help;
+  position: relative;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.info-tip:hover, .info-tip:focus {
+  background: var(--accent);
+  color: #FFFFFF;
+  outline: none;
+}
+.info-tip-content {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: auto;
+  right: -4px;
+  transform: none;
+  width: 280px;
+  max-width: calc(100vw - 2rem);
+  padding: 0.625rem 0.75rem;
+  background: var(--ink);
+  color: #FFFFFF;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.5;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+  text-transform: none;
+}
+.info-tip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: auto;
+  right: 8px;
+  transform: none;
+  border: 4px solid transparent;
+  border-top-color: var(--ink);
+}
+.info-tip:hover .info-tip-content,
+.info-tip:focus .info-tip-content {
+  opacity: 1;
+}
+
+.input-section {
+  margin-bottom: 1.5rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 6px;
+  padding: 1.125rem 1.25rem 1rem;
+}
+.input-section:last-child { margin-bottom: 0; }
+.input-section-header {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink);
+  padding-bottom: 0.625rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.input-section.buy {
+  border-left-color: var(--accent);
+}
+.input-section.buy .input-section-header { color: var(--accent); }
+.input-section.rent {
+  border-left-color: var(--rent);
+}
+.input-section.rent .input-section-header { color: var(--rent); }
+.input-section.macro {
+  border-left-color: var(--macro);
+}
+.input-section.macro .input-section-header { color: var(--macro); }
+
+.input-group { margin-bottom: 1.375rem; }
+.input-group:last-child { margin-bottom: 0; }
+.input-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.5rem;
+  gap: 1rem;
+}
+.input-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+.input-value {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--ink);
+  font-weight: 500;
+  background: var(--bg-soft);
+  padding: 0.125rem 0.5rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.input-help {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 0.5rem;
+  font-style: italic;
+  font-family: var(--sans);
+}
+.toggle-group {
+  display: flex;
+  background: var(--bg-soft);
+  padding: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--line-soft);
+}
+.toggle-group button {
+  flex: 1;
+  padding: 0.5rem 0.5rem;
+  background: transparent;
+  border: none;
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+.toggle-group button.active {
+  background: var(--accent);
+  color: #FFFFFF;
+}
+.toggle-group button:hover:not(.active) { color: var(--ink); }
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 1fr 90px;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.125rem;
+}
+.slider-row.coef {
+  grid-template-columns: 1fr 70px;
+  margin-top: 0.375rem;
+}
+input[type="range"] {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--line);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+input[type="number"], input[type="text"] {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--ink);
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  text-align: right;
+  font-weight: 500;
+}
+input[type="number"]:focus, input[type="text"]:focus { border-color: var(--ink); background: #FFF; }
+input[type="number"].full {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9375rem;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+.reset-btn {
+  margin-top: 1rem;
+  width: 100%;
+  padding: 0.625rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+.reset-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tax-breakdown {
+  background: var(--bg-soft);
+  border-radius: 3px;
+  padding: 0.625rem 0.75rem;
+  margin-top: 0.625rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.tax-breakdown strong { color: var(--ink); font-weight: 500; }
+
+.result-headline {
+  margin-bottom: 2.5rem;
+  padding: 1.5rem 0 1.5rem 1.75rem;
+  border-left: 2px solid var(--buy);
+}
+.result-headline.rent-wins { border-left-color: var(--rent); }
+.result-headline-value {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: clamp(1.625rem, 3vw, 2.125rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0.5rem 0;
+}
+.result-headline-value strong { font-weight: 600; }
+.result-headline-detail {
+  color: var(--muted);
+  font-size: 0.9375rem;
+  max-width: 60ch;
+  line-height: 1.6;
+  margin-top: 0.625rem;
+}
+.result-headline-detail strong { color: var(--ink); font-weight: 500; }
+
+.affordability-card {
+  margin-bottom: 2rem;
+  padding: 1.25rem 1.5rem 1.125rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+}
+.affordability-header {
+  margin-bottom: 0.875rem;
+}
+.affordability-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+.afford-cell { }
+.afford-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+.afford-value {
+  font-family: var(--mono);
+  font-size: 1.375rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.afford-sub {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.375rem;
+}
+.afford-extras {
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--line);
+}
+.afford-extra {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8125rem;
+  padding: 0.125rem 0;
+}
+.afford-extra-label {
+  color: var(--muted);
+  font-weight: 400;
+}
+.afford-extra-value {
+  font-family: var(--mono);
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.afford-extra-value.afford-extra-muted {
+  color: var(--muted);
+  font-weight: 400;
+  font-style: italic;
+  font-family: var(--sans);
+  font-size: 0.75rem;
+}
+.afford-extra.total {
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px dashed var(--line);
+}
+.afford-extra.total .afford-extra-label {
+  color: var(--ink);
+  font-weight: 500;
+}
+.afford-extra.total .afford-extra-value {
+  color: var(--ink);
+  font-weight: 600;
+}
+.afford-note {
+  margin-top: 0.875rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+@media (max-width: 540px) {
+  .affordability-grid { grid-template-columns: 1fr; gap: 1rem; }
+}
+
+.outcome-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+.outcome-card {
+  padding: 1.25rem 1.5rem 1.125rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.outcome-card.buy { border-left: 3px solid var(--accent); }
+.outcome-card.rent { border-left: 3px solid var(--rent); }
+.outcome-card-header {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.875rem;
+}
+.outcome-card.buy .outcome-card-header { color: var(--accent); }
+.outcome-card.rent .outcome-card-header { color: var(--rent); }
+.outcome-cell + .outcome-cell {
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--line);
+}
+.outcome-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+.outcome-value {
+  font-family: var(--mono);
+  font-size: 1.375rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.outcome-sub {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.375rem;
+}
+@media (max-width: 540px) {
+  .outcome-cards { grid-template-columns: 1fr; }
+}
+
+.chart-section { margin-bottom: 2.5rem; }
+.chart-container { position: relative; height: 340px; margin-top: 1.25rem; }
+.chart-container.tall { height: 420px; }
+.chart-legend {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+  flex-wrap: wrap;
+}
+.chart-legend-item { display: flex; align-items: center; gap: 0.5rem; }
+.chart-legend-swatch {
+  width: 14px;
+  height: 14px;
+  background: var(--buy);
+  border-radius: 2px;
+}
+.chart-legend-swatch.line {
+  height: 2px;
+  width: 20px;
+  border-radius: 0;
+}
+.chart-caption {
+  margin-top: 0.625rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.dynamics-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.dynamics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem 1.25rem;
+}
+.dyn-cell { }
+.dyn-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+.dyn-value {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.dyn-sub {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: 0.125rem;
+}
+.milestones {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.milestone .dyn-value { font-size: 1.125rem; }
+@media (max-width: 720px) {
+  .dynamics-cards { grid-template-columns: 1fr; }
+  .milestones { grid-template-columns: 1fr; }
+}
+
+.lifetime-list {
+  display: flex;
+  flex-direction: column;
+}
+.lifetime-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.4375rem 0;
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+.lifetime-row.top {
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.125rem;
+}
+.lifetime-row.sub {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  padding-left: 0.875rem;
+}
+.lifetime-row.sub .lifetime-label { color: var(--ink-soft); }
+.lifetime-row.mid {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 0.5rem;
+  padding-top: 0.625rem;
+  color: var(--ink-soft);
+}
+.lifetime-row.total {
+  font-weight: 600;
+  border-top: 1px solid var(--ink);
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+.lifetime-label { color: inherit; }
+.lifetime-value {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+.lifetime-row.sub .lifetime-value { color: var(--ink-soft); font-weight: 400; }
+.lifetime-row.total .lifetime-value { font-weight: 600; }
+.lifetime-note {
+  grid-column: 1 / -1;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  font-style: italic;
+  margin-top: 0.0625rem;
+}
+
+.guide {
+  margin-top: 5rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--line);
+}
+.guide-header {
+  margin-bottom: 1.75rem;
+}
+.guide-header h2 {
+  margin-bottom: 0.5rem;
+}
+.guide-sub {
+  font-size: 0.9375rem;
+  color: var(--muted);
+  max-width: 60ch;
+  line-height: 1.5;
+}
+.guide-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+.guide-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.guide-card {
+  padding: 1.25rem 1.5rem 1.125rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--macro);
+  border-radius: 6px;
+}
+.guide-card-header {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink);
+  padding-bottom: 0.625rem;
+  margin-bottom: 0.875rem;
+  border-bottom: 1px solid var(--line);
+}
+.guide-card-body {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.guide-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.guide-list li {
+  margin-bottom: 0.625rem;
+  line-height: 1.5;
+}
+.guide-list li:last-child { margin-bottom: 0; }
+.guide-list strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* New: structured entries inside guide cards (mistake/correction format) */
+.guide-entry {
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.guide-entry:first-child { padding-top: 0; }
+.guide-entry:last-child { border-bottom: none; padding-bottom: 0; }
+.guide-entry-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 0.625rem;
+  line-height: 1.4;
+}
+.guide-entry p {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.guide-entry p:last-of-type { margin-bottom: 0.5rem; }
+.guide-entry .label {
+  font-weight: 600;
+  color: var(--ink);
+}
+.guide-entry .authors {
+  font-size: 0.8125rem;
+  font-style: italic;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+.guide-card-intro {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  margin: 0 0 1rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Lighter intro strip at the top of the page (orientation, not a full card) */
+.intro-strip {
+  margin: 0 0 2rem;
+  padding: 1.5rem 0 0;
+  border-top: 1px solid var(--line);
+}
+.intro-strip-title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 1.25rem;
+}
+.intro-strip-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2rem;
+}
+.intro-strip h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 0.5rem;
+  line-height: 1.4;
+}
+.intro-strip p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+@media (max-width: 720px) {
+  .intro-strip-grid { grid-template-columns: 1fr; gap: 1.25rem; }
+  .guide-grid { grid-template-columns: 1fr; }
+}
+
+footer {
+  margin-top: 5rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--line);
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 2.5rem;
+  margin-bottom: 2.5rem;
+}
+.footer-heading {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--ink);
+  margin-bottom: 0.875rem;
+}
+.footer-text, .footer-list li {
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.footer-list { list-style: none; }
+.footer-list li { padding: 0.125rem 0; }
+.footer-list a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+.footer-list a:hover { border-bottom-color: var(--ink); }
+.colophon {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+.results-section { margin-bottom: 2.5rem; }
+.results-section h2 { margin-bottom: 0.25rem; }
+.results-section > p {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <header class="hero">
+    <h1 class="hero-title">Buy or rent decision tool</h1>
+    <p class="hero-sub">Czech-context financial comparison · 2026 calibration</p>
+  </header>
+
+  <section class="intro-strip" aria-labelledby="intro-strip-title">
+    <p class="intro-strip-title" id="intro-strip-title">Purpose and how to use the tool</p>
+    <div class="intro-strip-grid">
+
+      <div>
+        <h3>What the tool does</h3>
+        <p>The tool compares the financial side of the buy versus rent scenario for the same household: buying a property with a mortgage versus renting an equivalent home while investing the cost difference each month. It shows the development of net worth across the horizon, the development of annual housing costs and their decomposition, and the proportion of the household's terminal wealth held as liquid assets versus locked in the property.</p>
+      </div>
+
+      <div>
+        <h3>How to use it for a fair comparison</h3>
+        <p>The financial comparison is only fair if the housing being compared is comparable. The property price you enter and the monthly rent you enter should refer to the same kind of home. A frequent trap is to compare the price and rent of two different flats, which would skew the results.</p>
+      </div>
+
+      <div>
+        <h3>Experimenting with the sliders</h3>
+        <p>Once the baseline comparison reflects the household's actual situation, the sliders let you test how the result responds to changes in market and other assumptions. The most influential inputs are price growth, rent growth, investment return, the mortgage rate, and the comparison horizon. Each can shift the conclusion meaningfully on its own. Comparing very different properties intentionally, for example a smaller rented flat against a larger owned one, is also possible if the household genuinely faces that trade-off, but the result should then be read as a lifestyle comparison rather than a like-for-like financial test.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="layout">
+
+    <section aria-labelledby="params-title">
+      <div class="panel">
+        <div class="panel-title">
+          <h2 id="params-title">Parameters</h2>
+          <div class="eyebrow">Baseline</div>
+        </div>
+
+        <p class="panel-note">
+          Preset values reflect early-2026 Czech market conditions. Property price and rent are calibrated
+          to a 55 m² Prague apartment (Sreality.cz, Q1 2026). Mortgage rate is the latest CBA Hypomonitor
+          monthly average (February 2026). All values can be changed; reset returns to baseline.
+        </p>
+
+        <!-- ============ BUY SCENARIO ============ -->
+        <div class="input-section buy">
+          <div class="input-section-header">Buy scenario</div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="property-price">Purchase price</label>
+              <span class="input-value">CZK</span>
+            </div>
+            <input type="number" id="property-price" class="full" value="8868530" step="10000">
+            <p class="input-help">Total price of the apartment.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="ltv">LTV (loan-to-value)</label>
+              <span class="input-value"><span id="ltv-val">90</span> %</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="ltv" min="50" max="90" step="1" value="90">
+              <input type="number" id="ltv-num" value="90" step="1" min="50" max="90">
+            </div>
+            <p class="input-help">CNB caps LTV at 80%; up to 90% for owner-occupied housing if the applicant is under 36.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="mortgage-rate">Mortgage interest rate</label>
+              <span class="input-value"><span id="mortgage-rate-val">4.46</span> %</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="mortgage-rate" min="1" max="10" step="0.01" value="4.46">
+              <input type="number" id="mortgage-rate-num" value="4.46" step="0.01" min="0" max="20">
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="mortgage-term">Mortgage term</label>
+              <span class="input-value"><span id="mortgage-term-val">30</span> years</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="mortgage-term" min="10" max="30" step="5" value="30">
+              <input type="number" id="mortgage-term-num" value="30" step="5" min="5" max="40">
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="ppi">Payment protection ins.</label>
+              <span class="input-value"><span id="ppi-val">8.0</span> % of payment</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="ppi" min="0" max="12" step="0.25" value="8">
+              <input type="number" id="ppi-num" value="8" step="0.25" min="0" max="20">
+            </div>
+            <p class="input-help">Czech market range: 4–10% of monthly payment.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label">
+                Borrower age (for DSTI cap)
+                <span class="info-tip" tabindex="0" aria-label="More information about DSTI">?
+                  <span class="info-tip-content">CNB internal benchmark caps DSTI at 50% for applicants under 36 and 45% otherwise. The DSTI limit was deactivated in July 2023, but most banks still use these thresholds in their internal affordability checks.</span>
+                </span>
+              </label>
+            </div>
+            <div class="toggle-group" role="radiogroup" id="age-toggle">
+              <button data-value="under36" class="active">Under 36</button>
+              <button data-value="over36">36 or older</button>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label">
+                Marginal tax rate on interest deduction
+                <span class="info-tip" tabindex="0" aria-label="More information about marginal tax rate">?
+                  <span class="info-tip-content">Applies to the mortgage interest deduction benefit. The Czech personal income tax is 15% up to approximately 36× the average wage (~1.68M CZK/year in 2025), and 23% on income above that threshold. Most borrowers fall in the 15% bracket.</span>
+                </span>
+              </label>
+            </div>
+            <div class="toggle-group" role="radiogroup" id="tax-rate-toggle">
+              <button data-value="15" class="active">15 %</button>
+              <button data-value="23">23 %</button>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="property-ins">Property insurance</label>
+              <span class="input-value">CZK/yr</span>
+            </div>
+            <input type="number" id="property-ins" class="full" value="4000" step="500">
+            <p class="input-help">Annual buildings insurance, grows with inflation.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="repairs">Repairs &amp; maintenance</label>
+              <span class="input-value"><span id="repairs-val">1.25</span> % of value/yr</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="repairs" min="0.25" max="3" step="0.05" value="1.25">
+              <input type="number" id="repairs-num" value="1.25" step="0.05" min="0" max="10">
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="admin-fees">SVJ / admin fees</label>
+              <span class="input-value">CZK/mo</span>
+            </div>
+            <input type="number" id="admin-fees" class="full" value="3000" step="100">
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label">Real estate tax</label>
+              <span class="input-value">CZK <span id="re-tax-val">2,310</span>/yr</span>
+            </div>
+            <div class="slider-row coef">
+              <div style="font-size:0.8125rem; color: var(--muted);">Floor area (m²)</div>
+              <input type="number" id="floor-area" value="55" step="1" min="20" max="500">
+            </div>
+            <div class="slider-row coef">
+              <div style="font-size:0.8125rem; color: var(--muted);">Base coefficient (§11)</div>
+              <input type="number" id="tax-base-coef" value="5.0" step="0.5" min="1" max="5">
+            </div>
+            <div class="slider-row coef">
+              <div style="font-size:0.8125rem; color: var(--muted);">Local coefficient (§12)</div>
+              <input type="number" id="tax-local-coef" value="2.0" step="0.1" min="0.5" max="5">
+            </div>
+            <div class="slider-row coef">
+              <div style="font-size:0.8125rem; color: var(--muted);">Area adjustment (§10)</div>
+              <input type="number" id="tax-area-adj" value="1.20" step="0.02" min="1.20" max="1.22">
+            </div>
+            <div class="tax-breakdown" id="tax-breakdown">
+              <strong>Formula:</strong> area × area_adj × 3.50 × base × local<br>
+              <span id="tax-formula">55 × 1.20 × 3.50 × 5.0 × 2.0 = 2,310 CZK</span>
+            </div>
+            <p class="input-help">Floor area is also used here. Baseline (Prague, combined coef 10.0): base 5.0, local 2.0. Area adjustment: 1.20 for a flat with no separately owned land (standard case), or 1.22 if co-owned land extends beyond the building footprint. Source: Act 338/1992 Sb.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="purchase-tx-cost">Purchase transaction cost</label>
+              <span class="input-value"><span id="purchase-tx-cost-val">1.0</span> % of price</span>
+            </div>
+            <input type="range" id="purchase-tx-cost" min="0" max="5" step="0.1" value="1">
+            <p class="input-help">Legal, agency, and registration fees paid by the buyer at purchase.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="selling-tx-cost">Selling transaction cost</label>
+              <span class="input-value"><span id="selling-tx-cost-val">1.0</span> % of sale price</span>
+            </div>
+            <input type="range" id="selling-tx-cost" min="0" max="5" step="0.1" value="1">
+            <p class="input-help">Legal, agency, and transfer fees at the end of the horizon when the property is sold.</p>
+          </div>
+        </div>
+
+        <!-- ============ RENT SCENARIO ============ -->
+        <div class="input-section rent">
+          <div class="input-section-header">Rent scenario</div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="monthly-rent">Monthly rent</label>
+              <span class="input-value">CZK/mo</span>
+            </div>
+            <input type="number" id="monthly-rent" class="full" value="25905" step="500">
+            <p class="input-help">Total monthly rent for an equivalent apartment.</p>
+          </div>
+        </div>
+
+        <!-- ============ MACRO ============ -->
+        <div class="input-section macro">
+          <div class="input-section-header">Macro assumptions</div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="inflation">Inflation</label>
+              <span class="input-value"><span id="inflation-val">2.5</span> %</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="inflation" min="0" max="8" step="0.25" value="2.5">
+              <input type="number" id="inflation-num" value="2.5" step="0.25" min="-5" max="20">
+            </div>
+            <p class="input-help">ČNB target is 2%; recent realised values slightly higher.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="rent-growth">Rent growth</label>
+              <span class="input-value"><span id="rent-growth-val">5.0</span> % /yr</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="rent-growth" min="0" max="12" step="0.25" value="5">
+              <input type="number" id="rent-growth-num" value="5" step="0.25" min="-5" max="20">
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="price-growth">Property price growth</label>
+              <span class="input-value"><span id="price-growth-val">5.0</span> % /yr</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="price-growth" min="-2" max="12" step="0.25" value="5">
+              <input type="number" id="price-growth-num" value="5" step="0.25" min="-10" max="20">
+            </div>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="investment-return">Investment return</label>
+              <span class="input-value"><span id="investment-return-val">8.0</span> % /yr</span>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="investment-return" min="0" max="15" step="0.25" value="8">
+              <input type="number" id="investment-return-num" value="8" step="0.25" min="-5" max="30">
+            </div>
+            <p class="input-help">
+              5% ≈ conservative mixed · 8% ≈ MSCI World in CZK · 10% ≈ S&amp;P 500 in CZK
+            </p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="horizon">Comparison horizon</label>
+              <span class="input-value"><span id="horizon-val">40</span> years</span>
+            </div>
+            <input type="range" id="horizon" min="10" max="60" step="1" value="40">
+          </div>
+
+          <button class="reset-btn" id="reset-btn">Reset to baseline</button>
+        </div>
+
+      </div>
+    </section>
+
+    <section aria-labelledby="results-title">
+
+      <div class="results-section">
+        <div style="display:flex; justify-content: space-between; align-items: baseline; padding-bottom: 0.875rem; border-bottom: 1px solid var(--ink); margin-bottom: 1.75rem;">
+          <h2 id="results-title">Results</h2>
+        </div>
+
+        <div class="result-headline" id="headline">
+          <div class="eyebrow">Final outcome</div>
+          <div class="result-headline-value" id="headline-title">Computing…</div>
+          <div class="result-headline-detail" id="headline-detail"></div>
+        </div>
+
+        <div class="affordability-card" id="affordability-card">
+          <div class="affordability-header">
+            <div class="eyebrow">Mortgage &amp; affordability</div>
+          </div>
+          <div class="affordability-grid">
+            <div class="afford-cell">
+              <div class="afford-label">Monthly mortgage payment</div>
+              <div class="afford-value" id="afford-mortgage">—</div>
+              <div class="afford-sub" id="afford-mortgage-sub">at the rate and LTV selected</div>
+              <div class="afford-extras">
+                <div class="afford-extra">
+                  <span class="afford-extra-label">+ Payment protection</span>
+                  <span class="afford-extra-value" id="afford-ppi">—</span>
+                </div>
+                <div class="afford-extra total">
+                  <span class="afford-extra-label">Total monthly cost</span>
+                  <span class="afford-extra-value" id="afford-total">—</span>
+                </div>
+              </div>
+            </div>
+            <div class="afford-cell">
+              <div class="afford-label">Required net monthly income</div>
+              <div class="afford-value" id="afford-income">—</div>
+              <div class="afford-sub" id="afford-income-sub">DSTI cap not yet applied</div>
+              <div class="afford-extras">
+                <div class="afford-extra">
+                  <span class="afford-extra-label">Down payment required</span>
+                  <span class="afford-extra-value" id="afford-downpayment">—</span>
+                </div>
+                <div class="afford-extra">
+                  <span class="afford-extra-label" id="afford-downpayment-pct-label">at LTV 90%</span>
+                  <span class="afford-extra-value afford-extra-muted">paid up front</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="afford-note">DSTI is the share of net monthly income used for total debt service. The CNB DSTI limit was deactivated in July 2023; banks continue to use 45% (50% under 36) as internal benchmarks.</p>
+        </div>
+
+        <div class="outcome-cards" role="group" aria-label="Final wealth outcomes">
+          <div class="outcome-card buy">
+            <div class="outcome-card-header">Buy</div>
+            <div class="outcome-cell">
+              <div class="outcome-label">Total net worth</div>
+              <div class="outcome-value" id="m-buy-total">—</div>
+              <div class="outcome-sub">property value plus investment portfolio</div>
+            </div>
+            <div class="outcome-cell">
+              <div class="outcome-label">Of which liquid</div>
+              <div class="outcome-value" id="m-buy-liquid">—</div>
+              <div class="outcome-sub" id="m-buy-liquid-sub">portfolio only, excluding property</div>
+            </div>
+          </div>
+          <div class="outcome-card rent">
+            <div class="outcome-card-header">Rent &amp; invest</div>
+            <div class="outcome-cell">
+              <div class="outcome-label">Total net worth</div>
+              <div class="outcome-value" id="m-rent-total">—</div>
+              <div class="outcome-sub">investment portfolio</div>
+            </div>
+            <div class="outcome-cell">
+              <div class="outcome-label">Of which liquid</div>
+              <div class="outcome-value" id="m-rent-liquid">—</div>
+              <div class="outcome-sub">all of net worth is liquid</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Net worth trajectory</h2>
+        <div class="chart-section">
+          <div class="chart-container">
+            <canvas id="wealth-chart"></canvas>
+          </div>
+          <div class="chart-legend">
+            <div class="chart-legend-item">
+              <div class="chart-legend-swatch line" style="background:var(--buy)"></div>
+              <span>Buy (net worth)</span>
+            </div>
+            <div class="chart-legend-item">
+              <div class="chart-legend-swatch line" style="background:var(--rent)"></div>
+              <span>Rent &amp; invest (portfolio)</span>
+            </div>
+          </div>
+          <p class="chart-caption">The buy line assumes the property is sold at the end of the horizon; selling costs are netted out of the terminal value.</p>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Annual cost</h2>
+        <div class="chart-section">
+          <div class="chart-container">
+            <canvas id="cost-line-chart"></canvas>
+          </div>
+          <div class="chart-legend">
+            <div class="chart-legend-item">
+              <div class="chart-legend-swatch line" style="background:var(--buy)"></div>
+              <span>Buy annual cost</span>
+            </div>
+            <div class="chart-legend-item">
+              <div class="chart-legend-swatch line" style="background:var(--rent)"></div>
+              <span>Rent annual cost</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Cost composition: buy side</h2>
+        <div class="chart-section">
+          <div class="chart-container tall">
+            <canvas id="buy-stack-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Cost composition: rent side</h2>
+        <div class="chart-section">
+          <div class="chart-container">
+            <canvas id="rent-stack-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Cost dynamics</h2>
+        <p class="chart-caption">Year 2 is shown as the first representative year, since year 1 includes one-off purchase costs and deposit flows that distort the recurring-cost picture.</p>
+
+        <div class="dynamics-cards">
+          <div class="outcome-card buy">
+            <div class="outcome-card-header">Buy: year 2</div>
+            <div class="dynamics-grid">
+              <div class="dyn-cell">
+                <div class="dyn-label">Annual cost</div>
+                <div class="dyn-value" id="dyn-buy-annual">—</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Monthly equivalent</div>
+                <div class="dyn-value" id="dyn-buy-monthly">—</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Of which principal repaid</div>
+                <div class="dyn-value" id="dyn-buy-principal">—</div>
+                <div class="dyn-sub" id="dyn-buy-principal-pct">—</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Of which mortgage interest</div>
+                <div class="dyn-value" id="dyn-buy-interest">—</div>
+                <div class="dyn-sub" id="dyn-buy-interest-pct">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="outcome-card rent">
+            <div class="outcome-card-header">Rent &amp; invest: year 2</div>
+            <div class="dynamics-grid">
+              <div class="dyn-cell">
+                <div class="dyn-label">Annual cost</div>
+                <div class="dyn-value" id="dyn-rent-annual">—</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Monthly equivalent</div>
+                <div class="dyn-value" id="dyn-rent-monthly">—</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Annual amount invested</div>
+                <div class="dyn-value" id="dyn-rent-invest">—</div>
+                <div class="dyn-sub">cost difference vs. buying, where positive</div>
+              </div>
+              <div class="dyn-cell">
+                <div class="dyn-label">Cumulative invested by year 2</div>
+                <div class="dyn-value" id="dyn-rent-cum">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="milestones">
+          <div class="milestone">
+            <div class="dyn-label">Cost crossover</div>
+            <div class="dyn-value" id="ms-crossover">—</div>
+            <div class="dyn-sub" id="ms-crossover-sub">first year ownership cost falls below rent</div>
+          </div>
+          <div class="milestone">
+            <div class="dyn-label">After mortgage repayment</div>
+            <div class="dyn-value" id="ms-mortgage-drop">—</div>
+            <div class="dyn-sub" id="ms-mortgage-drop-sub">drop in annual ownership cost</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-section">
+        <h2>Lifetime totals and final wealth</h2>
+        <p class="chart-caption">Cumulative cash flows over the full horizon, terminal asset values, and the resulting net worth for each strategy. The two figures at the bottom of each card match the headline outcomes at the top of the results.</p>
+
+        <div class="dynamics-cards">
+          <div class="outcome-card buy">
+            <div class="outcome-card-header">Buy: lifetime totals</div>
+            <div class="lifetime-list">
+              <div class="lifetime-row top">
+                <span class="lifetime-label">Total cash paid over horizon</span>
+                <span class="lifetime-value" id="lt-buy-cash">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Mortgage interest</span>
+                <span class="lifetime-value" id="lt-buy-interest">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Principal repaid</span>
+                <span class="lifetime-value" id="lt-buy-principal">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Repairs &amp; maintenance</span>
+                <span class="lifetime-value" id="lt-buy-repair">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">SVJ / admin fees</span>
+                <span class="lifetime-value" id="lt-buy-admin">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Payment protection insurance</span>
+                <span class="lifetime-value" id="lt-buy-ppi">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Property insurance</span>
+                <span class="lifetime-value" id="lt-buy-propins">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Real estate tax</span>
+                <span class="lifetime-value" id="lt-buy-retax">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Transaction costs</span>
+                <span class="lifetime-value" id="lt-buy-tx">—</span>
+                <span class="lifetime-note">purchase + selling</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Tax deduction benefit</span>
+                <span class="lifetime-value" id="lt-buy-taxben">—</span>
+                <span class="lifetime-note">reduces total cash paid</span>
+              </div>
+              <div class="lifetime-row mid">
+                <span class="lifetime-label">Property terminal value (net)</span>
+                <span class="lifetime-value" id="lt-buy-property">—</span>
+                <span class="lifetime-note">market value minus selling cost</span>
+              </div>
+              <div class="lifetime-row mid" id="lt-buy-balance-row" style="display:none;">
+                <span class="lifetime-label">Less: mortgage balance outstanding</span>
+                <span class="lifetime-value" id="lt-buy-balance">—</span>
+                <span class="lifetime-note">remaining loan principal at end of horizon</span>
+              </div>
+              <div class="lifetime-row mid">
+                <span class="lifetime-label">Investment portfolio</span>
+                <span class="lifetime-value" id="lt-buy-portfolio">—</span>
+              </div>
+              <div class="lifetime-row total">
+                <span class="lifetime-label">Final net worth</span>
+                <span class="lifetime-value" id="lt-buy-net">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="outcome-card rent">
+            <div class="outcome-card-header">Rent &amp; invest: lifetime totals</div>
+            <div class="lifetime-list">
+              <div class="lifetime-row top">
+                <span class="lifetime-label">Total cash paid over horizon</span>
+                <span class="lifetime-value" id="lt-rent-cash">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Rent</span>
+                <span class="lifetime-value" id="lt-rent-rent">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Moving costs</span>
+                <span class="lifetime-value" id="lt-rent-moving">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Deposit paid (initial)</span>
+                <span class="lifetime-value" id="lt-rent-deposit-paid">—</span>
+              </div>
+              <div class="lifetime-row sub">
+                <span class="lifetime-label">Deposit returned (end)</span>
+                <span class="lifetime-value" id="lt-rent-deposit-ret">—</span>
+              </div>
+              <div class="lifetime-row mid">
+                <span class="lifetime-label">Property terminal value (net)</span>
+                <span class="lifetime-value">CZK 0</span>
+              </div>
+              <div class="lifetime-row mid">
+                <span class="lifetime-label">Investment portfolio</span>
+                <span class="lifetime-value" id="lt-rent-portfolio">—</span>
+                <span class="lifetime-note">includes initial down-payment foregone, invested instead</span>
+              </div>
+              <div class="lifetime-row total">
+                <span class="lifetime-label">Final net worth</span>
+                <span class="lifetime-value" id="lt-rent-net">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <section class="guide" aria-labelledby="guide-title">
+    <div class="guide-header">
+      <h2 id="guide-title">Guide</h2>
+      <p class="guide-sub">Common reasoning mistakes households make when comparing buying with renting, and the limitations of the model. The mistakes are drawn from the housing literature reviewed in the thesis this tool accompanies.</p>
+    </div>
+
+    <div class="guide-stack">
+
+      <!-- ============================================================
+           CARD: COMMON MISTAKES
+           ============================================================ -->
+      <div class="guide-card">
+        <div class="guide-card-header">Common mistakes</div>
+        <div class="guide-card-body">
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">1. Rent is throwing money away</h3>
+            <p><span class="label">The mistake.</span> Rent is treated as money lost, whereas a mortgage payment is treated as an investment. From this view, paying rent leaves nothing behind, and buying always builds something. The conclusion is that buying is obviously the better financial choice.</p>
+            <p><span class="label">The correction.</span> Renting only feels like pure consumption if you ignore what happens to the money that the buyer commits to the property. The renter keeps the equivalent of the down payment from day one and continues to keep the monthly cost difference, which can be invested. Renting is, thus, housing consumption combined with an alternative wealth-building strategy. Whether that strategy beats buying depends on the inputs. The investment-return and rent-growth sliders are where the comparison's outcome is largely determined.</p>
+            <p class="authors">Tabner (2016); Poterba (1984); Beracha &amp; Johnson (2012).</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">2. Mortgage payments are equivalent to savings</h3>
+            <p><span class="label">The mistake.</span> A mortgage payment is treated as forced saving, with the household believing that every monthly payment converts cash into equity. On this view, the mortgage is a savings account with the property as the balance.</p>
+            <p><span class="label">The correction.</span> Only a minority of the monthly mortgage payment actually builds equity, and that share rises slowly over the life of the loan. The rest goes to mortgage interest, repairs, payment protection insurance, administrative fees, property insurance, and real estate tax. Even at the end of the mortgage term, the equity-building share never becomes the dominant component of the buyer's housing expenditure. The lifetime totals card breaks the components apart so the proportion is visible directly.</p>
+            <p class="authors">Poterba (1984); Hendershott &amp; Slemrod (1982); Shefrin &amp; Thaler (1988).</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">3. Buying always wins in the long run</h3>
+            <p><span class="label">The mistake.</span> Buying is treated as a strategy that is bound to win if the household just holds the property long enough. The household enters the decision having already chosen ownership and treats the financial comparison as a formality.</p>
+            <p><span class="label">The correction.</span> Buying does win in the baseline scenario, but only by a modest margin, and the result is conditional on the inputs and time horizon, rather than universal. Small changes in price growth, investment return, or rent growth can flip the comparison toward renting, and these reversals happen well within the range of plausible Czech market conditions. The Czech experience of property appreciation since the early 1990s is best understood as a historical condition rather than a pattern expected to continue indefinitely. The price-growth, rent-growth, and investment-return sliders are where this is most visible.</p>
+            <p class="authors">Shiller (2015); Goodman &amp; Mayer (2018); Beracha &amp; Johnson (2012); Lux &amp; Sunega (2022).</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">4. I will save the difference if I rent</h3>
+            <p><span class="label">The mistake.</span> The financial case for renting depends on the renter consistently investing the monthly cost difference between renting and buying over the entire horizon. Most households think they will do this. In practice, the discipline is hard to maintain over decades.</p>
+            <p><span class="label">The correction.</span> A mortgage is structurally protected from a discipline failure of this kind. Each monthly payment includes a contractually required principal component, and missing a payment could result in losing the home. A renter's savings account has no such protection. If the cost difference gets absorbed into general spending, the renter's terminal wealth shrinks accordingly. This is part of why the empirical literature consistently finds homeowners accumulating more wealth than renters, even where the rational financial comparison alone does not predict that result. The investment-return slider lets you see the lower bound directly: setting the return to zero shows what the renting path looks like if no investment discipline is applied.</p>
+            <p class="authors">Beracha &amp; Johnson (2012); Herbert et al. (2013); Turner &amp; Luea (2009); Shefrin &amp; Thaler (1988).</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">5. My friends and family bought, so I should too</h3>
+            <p><span class="label">The mistake.</span> The household arrives at the buying decision before performing any financial comparison, anchored to a social norm about what counts as the right form of housing. The financial comparison is then conducted, if at all, to confirm a decision that has effectively already been made.</p>
+            <p><span class="label">The correction.</span> The cultural attachment to ownership in the Czech Republic is unusually strong by European standards, and it is well documented in the post-socialist housing literature. Survey evidence shows that 83 percent of Czech adults agree that owning a home is always better than being a tenant, and 53 percent strongly agree. The literature describes this as a rationality bias in which the influence of the social norm constrains financial, pragmatic, and investment-based reasoning, and shows that the rational comparison that the user-cost framework presupposes operates only weakly in this context. The point of the tool is not to dismiss the cultural value of ownership. It is to make the financial side of the decision visible separately, so that the cultural choice and the financial choice can be made consciously, rather than collapsed into one.</p>
+            <p class="authors">Lux et al. (2017); Lux et al. (2018); Lux et al. (2020); Stephens et al. (2015).</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">6. Comparing the monthly mortgage to the monthly rent</h3>
+            <p><span class="label">The mistake.</span> The household compares the monthly mortgage payment to the monthly rent and treats the difference as the financial answer. This single-line comparison is what most online calculators show first and what most household conversations focus on.</p>
+            <p><span class="label">The correction.</span> The monthly mortgage is one of several costs the buyer carries. Real estate tax, payment protection insurance, property insurance, building administrative fees, ongoing repairs, and the opportunity cost of the down payment all sit alongside it. The user-cost framework, which is the main academic alternative to the simple monthly comparison, was developed precisely to capture these hidden costs. The mortgage and affordability card, and the lifetime totals card break down the buyer's full cost by component, so the comparison can be made on a like-for-like basis.</p>
+            <p class="authors">Poterba (1984); Hendershott &amp; Slemrod (1982); Himmelberg, Mayer &amp; Sinai (2005).</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============================================================
+           CARD: LIMITATIONS
+           ============================================================ -->
+      <div class="guide-card">
+        <div class="guide-card-header">Limitations</div>
+        <div class="guide-card-body">
+          <p class="guide-card-intro">The model is built to show the financial logic of the buy-versus-rent decision under a clear set of assumptions. The factors below are deliberately simplified or excluded.</p>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Mortgage refixation</h3>
+            <p>Czech mortgages do not offer fixed rates for the full term. The interest rate is reset at the end of each fixation period, typically every three, five, or seven years, and the new rate reflects the prevailing market conditions at the reset. The model holds the mortgage interest rate constant over the entire comparison horizon. This keeps the model transparent and easy to use, but does not capture the possibility that the rate may change during the loan's term. The interest-rate sensitivity in the thesis tests a wide range of rates that approximates the realistic spread observed over the past decade, and a household concerned about rate exposure can use that range to bound the realistic outcomes.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Macroeconomic shocks</h3>
+            <p>The model assumes stable inflation, price growth, and rent growth over the comparison horizon. Real markets do not behave this way. Inflation spikes, recessions, property-price corrections, and sudden interest-rate jumps all happen on timescales shorter than a typical comparison horizon. The sensitivity sliders let you test how the result responds to different steady-state assumptions, but they do not simulate shocks that occur within the comparison period. A household with income sensitive to recessions or to a specific labor market should treat the result as a baseline against which the personal risk profile needs to be assessed separately.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Repairs as a smooth percentage rather than lumpy events</h3>
+            <p>The model treats repair costs as a smooth monthly fraction of property value. In practice, repairs are lumpy. A new roof, a boiler replacement, a hot-water tank, or a major plumbing failure each costs a multiple of a typical year's repair budget. The same total cost over the horizon translates very differently for cash flow and for the household's ability to invest the cost difference reliably. Households for whom a sudden repair bill would be financially difficult should treat the repair line as carrying additional uncertainty that the smooth model does not display.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">How repairs are modelled</h3>
+            <p>Repair costs in the model are calculated as a percentage of the current property value, not a fixed amount. As the property appreciates, the repair line grows alongside it. This reflects two ideas. The first is that maintenance spending in practice tends to scale with the value of what is being maintained: more expensive properties carry more expensive fixtures, finishes, and components. The second is that the assumed price-growth rate is conditional on the property being maintained well enough to avoid physical depreciation. A property that does not receive ongoing maintenance does not appreciate at the modelled rate. Tying the two together in a single line keeps the model simpler than separating depreciation and maintenance, while preserving the economic logic.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Static tax treatment</h3>
+            <p>The model uses current Czech tax law for the mortgage interest deduction and the real estate tax formula, and assumes that an owner-occupier's terminal sale of the property is tax-free under the current holding-period and residence rules. None of these are guaranteed to remain stable over a 30 or 40-year horizon. Tax law changes can shift the comparison meaningfully in either direction. A user whose comparison horizon extends beyond the next political cycle should treat the tax-driven components of the result as carrying additional uncertainty.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Static investment-return treatment</h3>
+            <p>The model uses a single nominal annual investment return for the renter's portfolio and for the buyer's post-mortgage investments. The same single rate is applied across the entire horizon. Real markets produce returns with year-to-year variation that can affect the realized portfolio value, especially for a household withdrawing or contributing in volatile periods. The model also implicitly assumes the chosen return is achieved net of any taxes on investment income or capital gains. The investment-return slider should be set to the after-tax growth rate the user realistically expects to achieve, rather than a gross market return.</p>
+          </div>
+
+          <div class="guide-entry">
+            <h3 class="guide-entry-title">Non-financial factors</h3>
+            <p>The model focuses on financial comparability. Factors such as flexibility, psychological security, attachment to ownership, expected changes in household composition, and personal preferences may be highly relevant in practice yet fall outside the financial framework. The thesis discusses how these factors interact with the financial result and how a household should weigh them against the model's output.</p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-grid">
+      <div>
+        <div class="footer-heading">About this tool</div>
+        <p class="footer-text">
+          A financial comparison tool for the buy-versus-rent decision in Czech housing,
+          implementing the model documented in the accompanying thesis.
+          The tool incorporates the user cost of ownership, the opportunity cost of capital,
+          and the invest-the-difference strategy under early-2026 Czech market conditions.
+        </p>
+      </div>
+      <div>
+        <div class="footer-heading">Data sources</div>
+        <ul class="footer-list">
+          <li><a href="https://www.sreality.cz/cenova-mapa" target="_blank" rel="noopener">Sreality.cz · prices &amp; rents</a></li>
+          <li><a href="https://www.cbamonitor.cz/" target="_blank" rel="noopener">CBA Hypomonitor · mortgage rates</a></li>
+          <li><a href="https://csu.gov.cz/ceny-nemovitosti" target="_blank" rel="noopener">ČSÚ · property price index</a></li>
+          <li><a href="https://www.cnb.cz/en/financial-stability/" target="_blank" rel="noopener">ČNB · macroprudential limits</a></li>
+          <li><a href="https://financnisprava.gov.cz/" target="_blank" rel="noopener">Finanční správa · tax rules</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="footer-heading">Notes &amp; caveats</div>
+        <p class="footer-text">
+          Results are indicative only and reflect the selected assumptions.
+          The tool implements the financial model described in Chapters 4 and 5 of the thesis.
+          It is provided for educational purposes and does not constitute individual financial advice.
+        </p>
+      </div>
+    </div>
+    <div class="colophon">
+      David Bartoš · 2026 · Last calibrated April 2026
+    </div>
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================================
+ * CONFIGURATION
+ * ============================================================================
+ * All baseline parameters, regulatory thresholds, and Czech market constants
+ * are isolated in this block. To recalibrate the tool for a future market or
+ * regulatory environment, edit values below. The calculation logic further
+ * down does not need to be modified.
+ *
+ * Last calibrated: April 2026.
+ * ============================================================================ */
+
+const CONFIG = {
+
+  /* --- Baseline scenario (Q1 2026, Prague 55 m² apartment) --- */
+
+  defaultPropertyPrice:  8868530,   // CZK; Sreality.cz cenová mapa, Q1 2026
+  defaultMonthlyRent:    25905,     // CZK; Sreality.cz rental data, Q1 2026
+  defaultFloorArea:      55,        // m²
+  defaultRate:           0.0446,    // CBA Hypomonitor, February 2026
+
+  /* --- Czech regulatory thresholds (CNB, ČNB) --- */
+
+  defaultLTV:    0.90,   // CNB caps: 80% standard, 90% under 36
+  dstiUnder36:   0.50,   // CNB internal benchmark for applicants under 36
+  dsti36Plus:    0.45,   // CNB internal benchmark for applicants 36+
+                         // Note: DSTI limit was deactivated 1 July 2023; banks continue
+                         // using these as internal affordability checks.
+
+  /* --- Mortgage product parameters --- */
+
+  mortgageTerm:  30,     // years; Czech standard is 25–30
+  ppiDefault:    0.08,   // 8% of monthly payment; market range 4–10%
+
+  /* --- Transaction costs as fractions of price --- */
+
+  purchaseTxCost:  0.01,   // legal, agency, registration fees on purchase
+  sellingTxCost:   0.01,   // agency + transfer fees on sale
+
+  /* --- Ongoing ownership cost rates --- */
+
+  repairsRate:        0.0125,   // % of property value per year
+  adminFees:          3000,     // CZK/month, SVJ; grows with inflation
+  propertyInsurance:  4000,     // CZK/year; grows with inflation
+
+  /* --- Real estate tax (Act 338/1992 Sb. §7, §10, §11, §12) ---
+   *  Tax = floorArea × areaAdj × 3.50 × baseCoef × localCoef
+   *  Area adjustment: 1.20 (no separately owned land) or 1.22 (with co-owned land beyond
+   *  building footprint, §10(3)(a)).
+   *  Prague baseline: baseCoef 5.0 × localCoef 2.0 = combined 10.0; varies by district. */
+
+  reTaxRateCZKperM2:    3.50,
+  reTaxAreaAdjustment:  1.20,
+  defaultTaxBaseCoef:   5.0,
+  defaultTaxLocalCoef:  2.0,
+
+  /* --- Renting parameters --- */
+
+  securityDepositMonths:  2,   // 2 months at signing, refunded at end (capped at 3 by §2254(2) Civil Code)
+  movingCost:             8000,   // CZK per move; grows with inflation
+  movingFreqMonths:       52,     // average months between moves for renters
+
+  /* --- Tax deduction on mortgage interest (Act 586/1992 Sb. §15) --- */
+
+  taxDeductionLimit:       150000,   // CZK/year max deductible interest
+  defaultMarginalTaxRate:  0.15,     // 15% standard, 23% above ~36× avg wage (§16a)
+
+  /* --- Macro assumptions (long-run averages) --- */
+
+  inflation:         0.025,   // CNB target 2%; recent realised slightly higher
+  rentGrowth:        0.05,    // historical Czech average; user-adjustable
+  priceGrowth:       0.05,    // historical Czech average; user-adjustable
+  investmentReturn:  0.08,    // approx MSCI World CZK long-run; user-adjustable
+
+};
+
+/* ============================================================================ */
+
+const baseline = () => ({
+  propertyPrice: CONFIG.defaultPropertyPrice,
+  floorArea:     CONFIG.defaultFloorArea,
+  under36:       true,
+  ltv:           CONFIG.defaultLTV,
+  horizonYears:  40,
+  mortgageRate:  CONFIG.defaultRate,
+  mortgageTermYears: CONFIG.mortgageTerm,
+  monthlyRent:   CONFIG.defaultMonthlyRent,
+  inflation:        CONFIG.inflation,
+  rentGrowth:       CONFIG.rentGrowth,
+  priceGrowth:      CONFIG.priceGrowth,
+  investmentReturn: CONFIG.investmentReturn,
+  repairsRate:      CONFIG.repairsRate,
+  adminFees:        CONFIG.adminFees,
+  ppi:              CONFIG.ppiDefault,
+  propertyInsurance: CONFIG.propertyInsurance,
+  taxBaseCoef:   CONFIG.defaultTaxBaseCoef,
+  taxLocalCoef:  CONFIG.defaultTaxLocalCoef,
+  taxAreaAdj:    CONFIG.reTaxAreaAdjustment,
+  purchaseTxCost: CONFIG.purchaseTxCost,
+  sellingTxCost:  CONFIG.sellingTxCost,
+  marginalTaxRate: CONFIG.defaultMarginalTaxRate,
+});
+let state = baseline();
+
+const fmtM = n => {
+  if (n === 0) return 'CZK 0';
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `CZK ${(n / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `CZK ${Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')}`;
+  return `CZK ${Math.round(n)}`;
+};
+const fmtInt = n => Math.round(n).toLocaleString('en-US').replace(/,/g, ' ');
+
+/* ============================================================================
+ *
+ *                  CALCULATION LOGIC — DO NOT EDIT TO RECALIBRATE
+ *
+ * ============================================================================
+ *  Everything below this banner implements the financial model. Editing this
+ *  section requires understanding:
+ *    - Czech mortgage amortisation conventions
+ *    - The user-cost-of-ownership framework (Poterba 1984; Himmelberg et al. 2005)
+ *    - The invest-the-difference (alternative-investment) approach to comparing
+ *      buying with renting (Beracha & Johnson 2012)
+ *    - The implementation choices documented in Chapter 4 of the thesis
+ *
+ *  To recalibrate the tool — change baseline values, regulatory thresholds,
+ *  market constants — edit the CONFIG block at the top of this script. Do not
+ *  modify the functions below.
+ *
+ *  The logic is divided into:
+ *    1. computeRealEstateTax(state)  — Act 338/1992 Sb. formula
+ *    2. simulate(state)              — month-by-month projection of buy and rent
+ *                                      paths over the user's chosen horizon
+ *    3. render()                     — populate the UI with simulate() output
+ *                                      and redraw the four charts
+ * ============================================================================ */
+
+function computeRealEstateTax(s) {
+  return s.floorArea * s.taxAreaAdj * CONFIG.reTaxRateCZKperM2 * s.taxBaseCoef * s.taxLocalCoef;
+}
+
+function simulate(s) {
+  const purchasePrice = s.propertyPrice;
+  const monthlyRent0  = s.monthlyRent;
+  const ltv = s.ltv;
+  const mortgageAmount = purchasePrice * ltv;
+  const downPayment    = purchasePrice - mortgageAmount;
+  const annualTax      = computeRealEstateTax(s);
+
+  const H = s.horizonYears * 12;
+  const T = s.mortgageTermYears * 12;
+
+  const r_m   = Math.pow(1 + s.mortgageRate,    1/12) - 1;
+  const inf_m = Math.pow(1 + s.inflation,        1/12) - 1;
+  const rg_m  = Math.pow(1 + s.rentGrowth,       1/12) - 1;
+  const pg_m  = Math.pow(1 + s.priceGrowth,      1/12) - 1;
+  const inv_m = Math.pow(1 + s.investmentReturn, 1/12) - 1;
+
+  const mortgagePmt = mortgageAmount * r_m / (1 - Math.pow(1 + r_m, -T));
+
+  const monthlyInterest = new Array(H + 1).fill(0);
+  {
+    let bal = mortgageAmount;
+    for (let m = 1; m <= H; m++) {
+      if (m <= T) {
+        const i = bal * r_m;
+        monthlyInterest[m] = i;
+        bal -= (mortgagePmt - i);
+      }
+    }
+  }
+
+  let balance = mortgageAmount;
+  let rentPortfolio = downPayment;
+  let buyPortfolio  = 0;
+
+  const yearArr = [];
+  let yearBuyCost = 0, yearRentCost = 0;
+  let yBuyInterest = 0, yBuyPrincipal = 0, yBuyPPI = 0, yBuyRepair = 0,
+      yBuyAdmin = 0, yBuyPropIns = 0, yBuyReTax = 0, yBuyTaxBenefit = 0,
+      yBuyPurchaseCost = 0, yBuySellingCost = 0;
+  let yRent = 0, yMoving = 0, yDeposit = 0;
+
+  let cumBuyCash = 0, cumRentCash = 0;
+  let cumInterest = 0, cumPrincipal = 0, cumPPI = 0, cumRepair = 0, cumAdmin = 0, cumPropIns = 0, cumRETax = 0, cumTaxBenefit = 0;
+  let cumPurchase = 0, cumSelling = 0;
+  let cumRent = 0, cumMoving = 0, cumDeposit = 0;
+  let cumDepositPaid = 0, cumDepositReturned = 0;
+
+  for (let m = 1; m <= H; m++) {
+    const propertyValue = purchasePrice * Math.pow(1 + pg_m, m);
+
+    let interest = 0, mPmt = 0, mIns = 0, principal = 0;
+    if (m <= T) {
+      interest = balance * r_m;
+      principal = mortgagePmt - interest;
+      balance -= principal;
+      mPmt = mortgagePmt;
+      mIns = mPmt * s.ppi;
+    }
+
+    let interestWindow = 0;
+    for (let k = m; k < m + 12 && k <= H; k++) interestWindow += monthlyInterest[k];
+    const taxBenefitM = interestWindow >= CONFIG.taxDeductionLimit
+      ? (CONFIG.taxDeductionLimit / 12) * s.marginalTaxRate
+      : (interestWindow / 12) * s.marginalTaxRate;
+
+    const repair_m_rate = Math.pow(1 + s.repairsRate, 1/12) - 1;
+    const repairM = propertyValue * repair_m_rate;
+    const reTaxM = annualTax / 12;
+    const adminFee = s.adminFees * Math.pow(1 + inf_m, m);
+    const propInsM = (s.propertyInsurance / 12) * Math.pow(1 + inf_m, m);
+    const purchaseCost = (m === 1) ? purchasePrice * s.purchaseTxCost : 0;
+    const sellingCost = (m === H) ? propertyValue * s.sellingTxCost : 0;
+
+    // V7 convention:
+    //  - investment-flow buy cost excludes selling cost (selling cost is applied once to terminal NW)
+    //  - display buy cost includes selling cost so the user sees the full cash outflow in the final year
+    const buyCostForInvest = mPmt + mIns + repairM + adminFee - taxBenefitM + purchaseCost + reTaxM + propInsM;
+    const buyCost          = buyCostForInvest + sellingCost;
+
+    const rent = monthlyRent0 * Math.pow(1 + rg_m, m - 1);
+    const isMoveMonth = (m > 1) && ((m - 1) % CONFIG.movingFreqMonths === 0);
+    const movingCost = isMoveMonth
+      ? CONFIG.movingCost * Math.pow(1 + inf_m, m)
+      : 0;
+
+    let depositCF = 0;
+    if (m === 1) depositCF = monthlyRent0 * CONFIG.securityDepositMonths;
+    else if (m === H) depositCF = -rent * CONFIG.securityDepositMonths;
+
+    const rentCost = rent + depositCF + movingCost;
+
+    const AE = buyCostForInvest - rentCost;
+    const rentContribution = Math.max(AE, 0);
+    const buyContribution  = Math.max(-AE, 0);
+
+    rentPortfolio = rentPortfolio * (1 + inv_m) + rentContribution;
+    buyPortfolio = buyPortfolio * (1 + inv_m) + buyContribution;
+
+    yearBuyCost  += buyCost;
+    yearRentCost += rentCost;
+    yBuyInterest   += interest;
+    yBuyPrincipal  += principal;
+    yBuyPPI        += mIns;
+    yBuyRepair     += repairM;
+    yBuyAdmin      += adminFee;
+    yBuyPropIns    += propInsM;
+    yBuyReTax      += reTaxM;
+    yBuyTaxBenefit += taxBenefitM;
+    yBuyPurchaseCost += purchaseCost;
+    yBuySellingCost  += sellingCost;
+    yRent    += rent;
+    yMoving  += movingCost;
+    yDeposit += depositCF;
+
+    cumBuyCash  += buyCost;
+    cumRentCash += rentCost;
+    cumInterest += interest;
+    cumPrincipal += principal;
+    cumPPI += mIns;
+    cumRepair += repairM;
+    cumAdmin += adminFee;
+    cumPropIns += propInsM;
+    cumRETax += reTaxM;
+    cumTaxBenefit += taxBenefitM;
+    cumPurchase += purchaseCost;
+    cumSelling += sellingCost;
+    cumRent += rent;
+    cumMoving += movingCost;
+    cumDeposit += depositCF;
+    if (depositCF > 0) cumDepositPaid += depositCF;
+    else if (depositCF < 0) cumDepositReturned += -depositCF;
+
+    if (m % 12 === 0) {
+      const buyNet = propertyValue - balance + buyPortfolio - sellingCost;
+      const rentNet = rentPortfolio;
+      yearArr.push({
+        year: m / 12,
+        buyCost: yearBuyCost, rentCost: yearRentCost,
+        buyNet, rentNet,
+        propertyValue, mortgageBalance: balance,
+        buyPortfolio, rentPortfolio,
+        components: {
+          interest: yBuyInterest, principal: yBuyPrincipal, ppi: yBuyPPI,
+          repair: yBuyRepair, admin: yBuyAdmin, propIns: yBuyPropIns,
+          reTax: yBuyReTax, taxBenefit: yBuyTaxBenefit,
+          purchase: yBuyPurchaseCost, selling: yBuySellingCost,
+          rent: yRent, moving: yMoving, deposit: yDeposit,
+        },
+      });
+      yearBuyCost = 0; yearRentCost = 0;
+      yBuyInterest = yBuyPrincipal = yBuyPPI = yBuyRepair = 0;
+      yBuyAdmin = yBuyPropIns = yBuyReTax = yBuyTaxBenefit = 0;
+      yBuyPurchaseCost = yBuySellingCost = 0;
+      yRent = yMoving = yDeposit = 0;
+    }
+  }
+
+  let crossoverYear = null;
+  for (const y of yearArr) if (y.buyCost < y.rentCost) { crossoverYear = y.year; break; }
+
+  const final = yearArr[yearArr.length - 1];
+  return {
+    purchasePrice, mortgageAmount, downPayment, monthlyPayment: mortgagePmt,
+    years: yearArr, crossoverYear, annualTax,
+    mortgagePaidYear: Math.min(s.mortgageTermYears, s.horizonYears),
+    terminal: {
+      buyNet: final.buyNet, rentNet: final.rentNet,
+      buyLiquid: final.buyPortfolio, rentLiquid: final.rentPortfolio,
+      propertyValue: final.propertyValue,
+      advantage: final.buyNet - final.rentNet,
+    },
+    decomposition: {
+      buyCash: cumBuyCash, rentCash: cumRentCash,
+      components: {
+        interest: cumInterest, principal: cumPrincipal, ppi: cumPPI,
+        repair: cumRepair, admin: cumAdmin, propIns: cumPropIns,
+        reTax: cumRETax, taxBenefit: cumTaxBenefit,
+        purchase: cumPurchase, selling: cumSelling,
+        rent: cumRent, moving: cumMoving, deposit: cumDeposit,
+        depositPaid: cumDepositPaid, depositReturned: cumDepositReturned,
+      },
+    },
+  };
+}
+
+let wealthChart = null, costLineChart = null, buyStackChart = null, rentStackChart = null;
+
+function render() {
+  const r = simulate(state);
+
+  const tax = r.annualTax;
+  document.getElementById('re-tax-val').textContent = fmtInt(tax);
+  document.getElementById('tax-formula').textContent =
+    `${state.floorArea} × ${state.taxAreaAdj} × 3.50 × ${state.taxBaseCoef} × ${state.taxLocalCoef} = ${fmtInt(tax)} CZK`;
+
+  const buyWins = r.terminal.advantage >= 0;
+  const headline = document.getElementById('headline');
+  headline.classList.toggle('rent-wins', !buyWins);
+
+  const advAbs = Math.abs(r.terminal.advantage);
+  document.getElementById('headline-title').innerHTML = buyWins
+    ? `Buying produces <strong style="color:var(--buy)">${fmtM(advAbs)}</strong> more total net worth.`
+    : `Renting &amp; investing produces <strong style="color:var(--rent)">${fmtM(advAbs)}</strong> more total net worth.`;
+
+  const locked = ((1 - r.terminal.buyLiquid / r.terminal.buyNet) * 100);
+  document.getElementById('headline-detail').innerHTML = buyWins
+    ? `Under the selected ${state.horizonYears}-year horizon, the buyer ends with <strong>${fmtM(r.terminal.buyNet)}</strong> vs. <strong>${fmtM(r.terminal.rentNet)}</strong> for the disciplined renter. Note that <strong>${locked.toFixed(0)}%</strong> of the buyer's wealth is locked in the property and not accessible without selling.`
+    : `Under the selected ${state.horizonYears}-year horizon, the rent-and-invest strategy outperforms. The renter ends with <strong>${fmtM(r.terminal.rentNet)}</strong> vs. <strong>${fmtM(r.terminal.buyNet)}</strong> for the buyer, and all of the renter's wealth is liquid.`;
+
+  document.getElementById('m-buy-total').textContent  = fmtM(r.terminal.buyNet);
+  document.getElementById('m-rent-total').textContent = fmtM(r.terminal.rentNet);
+  document.getElementById('m-buy-liquid').textContent = fmtM(r.terminal.buyLiquid);
+  document.getElementById('m-rent-liquid').textContent = fmtM(r.terminal.rentLiquid);
+  document.getElementById('m-buy-liquid-sub').textContent = `${locked.toFixed(0)}% locked in property`;
+
+  /* Affordability card */
+  const dstiCap = state.under36 ? CONFIG.dstiUnder36 : CONFIG.dsti36Plus;
+  const reqIncome = r.monthlyPayment / dstiCap;
+  const monthlyPPI = r.monthlyPayment * state.ppi;
+  const monthlyOutlay = r.monthlyPayment + monthlyPPI;
+  document.getElementById('afford-mortgage').textContent = `${fmtInt(r.monthlyPayment)} CZK`;
+  document.getElementById('afford-mortgage-sub').textContent =
+    `LTV ${(state.ltv * 100).toFixed(0)}% · ${(state.mortgageRate * 100).toFixed(2)}% · ${state.mortgageTermYears} years`;
+  document.getElementById('afford-ppi').textContent = `${fmtInt(monthlyPPI)} CZK`;
+  document.getElementById('afford-total').textContent = `${fmtInt(monthlyOutlay)} CZK`;
+  document.getElementById('afford-income').textContent = `${fmtInt(reqIncome)} CZK`;
+  document.getElementById('afford-income-sub').textContent =
+    `at DSTI ${(dstiCap * 100).toFixed(0)}% (${state.under36 ? 'under 36' : '36+'} threshold)`;
+  document.getElementById('afford-downpayment').textContent = `${fmtInt(r.downPayment)} CZK`;
+  document.getElementById('afford-downpayment-pct-label').textContent = `at LTV ${(state.ltv * 100).toFixed(0)}%`;
+
+  /* Cost dynamics — year 2 numbers + cross-cutting milestones */
+  const y2 = r.years.length >= 2 ? r.years[1] : r.years[0];
+  const c2 = y2.components;
+  const buyAnnual = y2.buyCost;
+  const rentAnnual = y2.rentCost;
+  const principal = c2.principal;
+  const interest  = c2.interest;
+  const principalPct = buyAnnual > 0 ? (principal / buyAnnual * 100) : 0;
+  const interestPct  = buyAnnual > 0 ? (interest  / buyAnnual * 100) : 0;
+  const investedY2 = Math.max(buyAnnual - rentAnnual, 0);
+  const cumInvestedY2 = r.years.slice(0, 2).reduce((s, y) => s + Math.max(y.buyCost - y.rentCost, 0), 0);
+
+  document.getElementById('dyn-buy-annual').textContent  = `${fmtInt(buyAnnual)} CZK`;
+  document.getElementById('dyn-buy-monthly').textContent = `${fmtInt(buyAnnual / 12)} CZK`;
+  document.getElementById('dyn-buy-principal').textContent = `${fmtInt(principal)} CZK`;
+  document.getElementById('dyn-buy-principal-pct').textContent = `${principalPct.toFixed(0)}% of annual cost`;
+  document.getElementById('dyn-buy-interest').textContent = `${fmtInt(interest)} CZK`;
+  document.getElementById('dyn-buy-interest-pct').textContent = `${interestPct.toFixed(0)}% of annual cost`;
+
+  document.getElementById('dyn-rent-annual').textContent  = `${fmtInt(rentAnnual)} CZK`;
+  document.getElementById('dyn-rent-monthly').textContent = `${fmtInt(rentAnnual / 12)} CZK`;
+  document.getElementById('dyn-rent-invest').textContent  = `${fmtInt(investedY2)} CZK`;
+  document.getElementById('dyn-rent-cum').textContent     = `${fmtInt(cumInvestedY2)} CZK`;
+
+  /* Milestones */
+  if (r.crossoverYear) {
+    document.getElementById('ms-crossover').textContent = `Year ${r.crossoverYear}`;
+    document.getElementById('ms-crossover-sub').textContent = 'first year ownership cost falls below rent';
+  } else {
+    document.getElementById('ms-crossover').textContent = 'None';
+    document.getElementById('ms-crossover-sub').textContent = 'ownership cost never falls below rent under these assumptions';
+  }
+
+  const mPaidIdx = state.mortgageTermYears - 1;
+  if (mPaidIdx < r.years.length - 1) {
+    const before = r.years[mPaidIdx].buyCost;
+    const after  = r.years[mPaidIdx + 1].buyCost;
+    const drop = before - after;
+    const dropPct = before > 0 ? Math.round(drop / before * 100) : 0;
+    document.getElementById('ms-mortgage-drop').textContent = `−${dropPct}%`;
+    document.getElementById('ms-mortgage-drop-sub').textContent = `cost drop in year ${state.mortgageTermYears + 1} (${fmtInt(drop)} CZK)`;
+  } else {
+    document.getElementById('ms-mortgage-drop').textContent = '—';
+    document.getElementById('ms-mortgage-drop-sub').textContent = 'mortgage outlasts the comparison horizon';
+  }
+
+  /* Lifetime totals — buy card */
+  const d = r.decomposition;
+  const termProp = r.terminal.propertyValue - r.years[r.years.length - 1].propertyValue * state.sellingTxCost;
+  const txCosts = d.components.purchase + d.components.selling;
+
+  const fmtCZK = n => `${fmtInt(n)} CZK`;
+
+  document.getElementById('lt-buy-cash').textContent      = fmtCZK(d.buyCash);
+  document.getElementById('lt-buy-interest').textContent  = fmtCZK(d.components.interest);
+  document.getElementById('lt-buy-principal').textContent = fmtCZK(d.components.principal);
+  document.getElementById('lt-buy-repair').textContent    = fmtCZK(d.components.repair);
+  document.getElementById('lt-buy-admin').textContent     = fmtCZK(d.components.admin);
+  document.getElementById('lt-buy-ppi').textContent       = fmtCZK(d.components.ppi);
+  document.getElementById('lt-buy-propins').textContent   = fmtCZK(d.components.propIns);
+  document.getElementById('lt-buy-retax').textContent     = fmtCZK(d.components.reTax);
+  document.getElementById('lt-buy-tx').textContent        = fmtCZK(txCosts);
+  document.getElementById('lt-buy-taxben').textContent    = `−${fmtInt(d.components.taxBenefit)} CZK`;
+  document.getElementById('lt-buy-property').textContent  = fmtCZK(termProp);
+  const finalBalance = r.years[r.years.length - 1].mortgageBalance;
+  const balanceRow = document.getElementById('lt-buy-balance-row');
+  if (finalBalance > 0.5) {
+    balanceRow.style.display = '';
+    document.getElementById('lt-buy-balance').textContent = `−${fmtInt(finalBalance)} CZK`;
+  } else {
+    balanceRow.style.display = 'none';
+  }
+  document.getElementById('lt-buy-portfolio').textContent = fmtCZK(r.terminal.buyLiquid);
+  document.getElementById('lt-buy-net').textContent       = fmtCZK(r.terminal.buyNet);
+
+  /* Lifetime totals — rent card */
+  document.getElementById('lt-rent-cash').textContent          = fmtCZK(d.rentCash);
+  document.getElementById('lt-rent-rent').textContent          = fmtCZK(d.components.rent);
+  document.getElementById('lt-rent-moving').textContent        = fmtCZK(d.components.moving);
+  document.getElementById('lt-rent-deposit-paid').textContent  = fmtCZK(d.components.depositPaid);
+  document.getElementById('lt-rent-deposit-ret').textContent   = `−${fmtInt(d.components.depositReturned)} CZK`;
+  document.getElementById('lt-rent-portfolio').textContent     = fmtCZK(r.terminal.rentLiquid);
+  document.getElementById('lt-rent-net').textContent           = fmtCZK(r.terminal.rentNet);
+
+  drawWealthChart(r);
+  drawCostLineChart(r);
+  drawBuyStackChart(r);
+  drawRentStackChart(r);
+}
+
+function commonAxes(years) {
+  const css = getComputedStyle(document.body);
+  const lineColor = css.getPropertyValue('--line-soft').trim();
+  const labelColor = css.getPropertyValue('--muted').trim();
+  return {
+    x: {
+      grid: { display: false },
+      border: { color: lineColor },
+      ticks: {
+        color: labelColor,
+        font: { family: 'IBM Plex Mono', size: 11 },
+        callback: function(val, idx) {
+          const y = years[idx];
+          if (y === undefined) return '';
+          return (y % 5 === 0) ? y : '';
+        },
+        maxRotation: 0,
+      },
+      title: { display: true, text: 'Year', color: labelColor, font: { family: 'Inter', size: 11, weight: '500' } },
+    },
+    y: {
+      grid: { color: lineColor, drawTicks: false },
+      border: { display: false },
+      ticks: {
+        color: labelColor,
+        font: { family: 'IBM Plex Mono', size: 11 },
+        padding: 10,
+        callback: (v) => {
+          if (Math.abs(v) >= 1e6) return (v/1e6).toFixed(0) + 'M';
+          if (Math.abs(v) >= 1e3) return (v/1e3).toFixed(0) + 'k';
+          return v;
+        },
+      },
+      title: { display: true, text: 'CZK', color: labelColor, font: { family: 'Inter', size: 11, weight: '500' } },
+    },
+  };
+}
+
+function tooltipStyle(withTotal) {
+  return {
+    backgroundColor: '#0F172A',
+    titleFont: { family: 'IBM Plex Mono', size: 11 },
+    bodyFont:  { family: 'IBM Plex Mono', size: 12, weight: '500' },
+    padding: 10, cornerRadius: 2,
+    callbacks: {
+      title: (items) => `Year ${items[0].label}`,
+      label: (ctx) => `${ctx.dataset.label}: ${fmtM(ctx.parsed.y)}`,
+      footer: withTotal ? (items) => {
+        const total = items.reduce((s, it) => s + it.parsed.y, 0);
+        return `Total: ${fmtM(total)}`;
+      } : undefined,
+    },
+    footerFont: { family: 'IBM Plex Mono', size: 11, weight: '600' },
+  };
+}
+
+function drawWealthChart(r) {
+  const ctx = document.getElementById('wealth-chart').getContext('2d');
+  const years = r.years.map(y => y.year);
+  const css = getComputedStyle(document.body);
+  const buyColor = css.getPropertyValue('--buy').trim();
+  const rentColor = css.getPropertyValue('--rent').trim();
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [
+        { label: 'Buy (net worth)', data: r.years.map(y => y.buyNet), borderColor: buyColor, backgroundColor: 'transparent', borderWidth: 2, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 },
+        { label: 'Rent (portfolio)', data: r.years.map(y => y.rentNet), borderColor: rentColor, backgroundColor: 'transparent', borderWidth: 2, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { display: false }, tooltip: tooltipStyle() },
+      scales: commonAxes(years),
+    },
+  };
+  if (wealthChart) { wealthChart.data = cfg.data; wealthChart.options = cfg.options; wealthChart.update('none'); }
+  else             { wealthChart = new Chart(ctx, cfg); }
+}
+
+function drawCostLineChart(r) {
+  const ctx = document.getElementById('cost-line-chart').getContext('2d');
+  const years = r.years.map(y => y.year);
+  const css = getComputedStyle(document.body);
+  const buyColor = css.getPropertyValue('--buy').trim();
+  const rentColor = css.getPropertyValue('--rent').trim();
+
+  const cfg = {
+    type: 'line',
+    data: {
+      labels: years,
+      datasets: [
+        { label: 'Buy annual cost', data: r.years.map(y => y.buyCost), borderColor: buyColor, backgroundColor: 'transparent', borderWidth: 2, tension: 0.15, pointRadius: 0, pointHoverRadius: 5 },
+        { label: 'Rent annual cost', data: r.years.map(y => y.rentCost), borderColor: rentColor, backgroundColor: 'transparent', borderWidth: 2, tension: 0.15, pointRadius: 0, pointHoverRadius: 5 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: { legend: { display: false }, tooltip: tooltipStyle() },
+      scales: commonAxes(years),
+    },
+  };
+  if (costLineChart) { costLineChart.data = cfg.data; costLineChart.options = cfg.options; costLineChart.update('none'); }
+  else               { costLineChart = new Chart(ctx, cfg); }
+}
+
+function drawBuyStackChart(r) {
+  const ctx = document.getElementById('buy-stack-chart').getContext('2d');
+  const years = r.years.map(y => y.year);
+  const css = getComputedStyle(document.body);
+
+  const components = [
+    { key: 'interest',   label: 'Mortgage interest',  color: '#1E3A8A' },
+    { key: 'principal',  label: 'Principal repaid',    color: '#2563EB' },
+    { key: 'ppi',        label: 'Payment protection',  color: '#60A5FA' },
+    { key: 'repair',     label: 'Repairs',             color: '#94A3B8' },
+    { key: 'admin',      label: 'SVJ/admin fees',      color: '#CBD5E1' },
+    { key: 'propIns',    label: 'Property insurance',  color: '#E2E8F0' },
+    { key: 'reTax',      label: 'Real estate tax',     color: '#F1F5F9' },
+    { key: 'purchase',   label: 'Purchase cost',       color: '#475569' },
+    { key: 'selling',    label: 'Selling cost',        color: '#64748B' },
+    // Tax benefit is a negative contribution — plotted separately so it appears as a reducer.
+    { key: 'taxBenefit', label: 'Tax deduction benefit (negative)', color: '#A7F3D0', negative: true },
+  ];
+  const datasets = components.map(c => ({
+    label: c.label,
+    data: r.years.map(y => {
+      const v = y.components[c.key] || 0;
+      return c.negative ? -v : v;
+    }),
+    backgroundColor: c.color,
+    borderWidth: 0,
+    stack: 'buy',
+  }));
+
+  const cfg = {
+    type: 'bar',
+    data: { labels: years, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: css.getPropertyValue('--muted').trim(), font: { family: 'Inter', size: 11 }, boxWidth: 12, boxHeight: 12, padding: 10 },
+        },
+        tooltip: tooltipStyle(true),
+      },
+      scales: commonAxes(years),
+    },
+  };
+  if (buyStackChart) { buyStackChart.data = cfg.data; buyStackChart.options = cfg.options; buyStackChart.update('none'); }
+  else               { buyStackChart = new Chart(ctx, cfg); }
+}
+
+function drawRentStackChart(r) {
+  const ctx = document.getElementById('rent-stack-chart').getContext('2d');
+  const years = r.years.map(y => y.year);
+  const css = getComputedStyle(document.body);
+
+  const components = [
+    { key: 'rent',    label: 'Rent',           color: '#64748B' },
+    { key: 'moving',  label: 'Moving cost',    color: '#94A3B8' },
+    { key: 'deposit', label: 'Deposit flows',  color: '#CBD5E1' },
+  ];
+  const datasets = components.map(c => ({
+    label: c.label,
+    data: r.years.map(y => y.components[c.key] || 0),
+    backgroundColor: c.color,
+    borderWidth: 0,
+    stack: 'rent',
+  }));
+
+  const cfg = {
+    type: 'bar',
+    data: { labels: years, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: css.getPropertyValue('--muted').trim(), font: { family: 'Inter', size: 11 }, boxWidth: 12, boxHeight: 12, padding: 10 },
+        },
+        tooltip: tooltipStyle(true),
+      },
+      scales: commonAxes(years),
+    },
+  };
+  if (rentStackChart) { rentStackChart.data = cfg.data; rentStackChart.options = cfg.options; rentStackChart.update('none'); }
+  else                { rentStackChart = new Chart(ctx, cfg); }
+}
+
+/* ============================================================================
+ *                  END OF CALCULATION LOGIC
+ * ============================================================================
+ *  Below: UI wiring — event handlers, input-to-state bindings, and the
+ *  syncInputsFromState() helper that ensures the visible inputs match the
+ *  state object whenever CONFIG changes or the user resets.
+ * ============================================================================ */
+
+function bindToggle(groupId, fn) {
+  const group = document.getElementById(groupId);
+  group.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      fn(btn.dataset.value);
+      render();
+    });
+  });
+}
+
+function bindRangeDisplay(id, stateKey, displayFn, valueFn) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(id + '-val');
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    state[stateKey] = valueFn ? valueFn(v) : v;
+    if (valEl) valEl.textContent = displayFn ? displayFn(v) : v;
+    render();
+  });
+}
+
+function bindNumber(id, stateKey, displayFn, valueFn) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(id + '-val');
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    if (isNaN(v)) return;
+    state[stateKey] = valueFn ? valueFn(v) : v;
+    if (valEl) valEl.textContent = displayFn ? displayFn(v) : v;
+    render();
+  });
+}
+
+/* Linked slider + number input. If asPercent is true, state stores 0..1 fraction
+   while UI works in 0..100. Otherwise UI value goes directly to state. */
+function bindLinked(sliderId, numId, stateKey, displayId, decimals, asPercent, hardMin, hardMax) {
+  const slider = document.getElementById(sliderId);
+  const num    = document.getElementById(numId);
+  const valEl  = displayId ? document.getElementById(displayId) : null;
+  const sync = (v) => {
+    if (isNaN(v)) return;
+    const clamped = Math.max(hardMin, Math.min(hardMax, v));
+    slider.value = clamped;
+    num.value    = decimals != null ? clamped.toFixed(decimals) : clamped;
+    if (valEl) valEl.textContent = decimals != null ? clamped.toFixed(decimals) : clamped;
+    state[stateKey] = asPercent ? clamped / 100 : clamped;
+    render();
+  };
+  slider.addEventListener('input', () => sync(parseFloat(slider.value)));
+  num.addEventListener('input', () => {
+    const v = parseFloat(num.value);
+    if (!isNaN(v)) sync(v);
+  });
+}
+
+bindToggle('age-toggle', (v) => { state.under36 = (v === 'under36'); });
+bindToggle('tax-rate-toggle', (v) => { state.marginalTaxRate = parseInt(v) / 100; });
+
+bindNumber('property-price', 'propertyPrice');
+bindRangeDisplay('purchase-tx-cost', 'purchaseTxCost', (v) => v.toFixed(1), (v) => v / 100);
+bindRangeDisplay('selling-tx-cost', 'sellingTxCost', (v) => v.toFixed(1), (v) => v / 100);
+
+bindLinked('ltv', 'ltv-num', 'ltv', 'ltv-val', 0, true, 50, 90);
+bindLinked('mortgage-rate', 'mortgage-rate-num', 'mortgageRate', 'mortgage-rate-val', 2, true, 0, 20);
+bindLinked('mortgage-term', 'mortgage-term-num', 'mortgageTermYears', 'mortgage-term-val', 0, false, 5, 40);
+bindLinked('ppi', 'ppi-num', 'ppi', 'ppi-val', 1, true, 0, 20);
+bindLinked('repairs', 'repairs-num', 'repairsRate', 'repairs-val', 2, true, 0, 10);
+
+bindNumber('property-ins', 'propertyInsurance');
+bindNumber('admin-fees', 'adminFees');
+bindNumber('floor-area', 'floorArea');
+bindNumber('tax-base-coef', 'taxBaseCoef');
+bindNumber('tax-local-coef', 'taxLocalCoef');
+bindNumber('tax-area-adj', 'taxAreaAdj');
+
+bindNumber('monthly-rent', 'monthlyRent');
+
+bindLinked('inflation', 'inflation-num', 'inflation', 'inflation-val', 1, true, -5, 20);
+bindLinked('rent-growth', 'rent-growth-num', 'rentGrowth', 'rent-growth-val', 1, true, -5, 20);
+bindLinked('price-growth', 'price-growth-num', 'priceGrowth', 'price-growth-val', 1, true, -10, 20);
+bindLinked('investment-return', 'investment-return-num', 'investmentReturn', 'investment-return-val', 1, true, -5, 30);
+bindRangeDisplay('horizon', 'horizonYears');
+
+/* Sync all input fields, sliders, and value displays from current state.
+ * Called on page load (so the UI reflects CONFIG defaults from baseline()) and
+ * by the reset button. This is what guarantees the inputs the user sees match
+ * the values the simulation is using. */
+function syncInputsFromState() {
+  /* Toggles — visual active class */
+  document.getElementById('age-toggle').querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', (state.under36 ? 'under36' : 'over36') === b.dataset.value);
+  });
+  document.getElementById('tax-rate-toggle').querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', String(Math.round(state.marginalTaxRate * 100)) === b.dataset.value);
+  });
+
+  /* Direct number inputs */
+  document.getElementById('property-price').value     = state.propertyPrice;
+  document.getElementById('property-ins').value       = state.propertyInsurance;
+  document.getElementById('admin-fees').value         = state.adminFees;
+  document.getElementById('floor-area').value         = state.floorArea;
+  document.getElementById('tax-base-coef').value      = state.taxBaseCoef;
+  document.getElementById('tax-local-coef').value     = state.taxLocalCoef;
+  document.getElementById('tax-area-adj').value       = state.taxAreaAdj;
+  document.getElementById('monthly-rent').value       = state.monthlyRent;
+
+  /* Sliders + their value displays. Helpers to keep three things in sync:
+       slider.value, optional number companion, and the value display span. */
+  const setSlider = (id, valueOnSlider, displayText, hasNumComp = true, decimals = null) => {
+    const slider = document.getElementById(id);
+    slider.value = valueOnSlider;     // browser silently clamps to slider min/max
+    if (hasNumComp) {
+      const num = document.getElementById(id + '-num');
+      if (num) num.value = decimals != null ? Number(valueOnSlider).toFixed(decimals) : valueOnSlider;
+    }
+    const val = document.getElementById(id + '-val');
+    if (val) val.textContent = displayText;
+  };
+
+  /* Percent-style inputs: state holds 0..1, UI shows 0..100 */
+  setSlider('purchase-tx-cost', state.purchaseTxCost * 100, (state.purchaseTxCost * 100).toFixed(1), false);
+  setSlider('selling-tx-cost',  state.sellingTxCost * 100,  (state.sellingTxCost * 100).toFixed(1),  false);
+  setSlider('ltv',              state.ltv * 100,            (state.ltv * 100).toFixed(0),            true, 0);
+  setSlider('mortgage-rate',    state.mortgageRate * 100,   (state.mortgageRate * 100).toFixed(2),   true, 2);
+  setSlider('ppi',              state.ppi * 100,            (state.ppi * 100).toFixed(1),            true, 1);
+  setSlider('repairs',          state.repairsRate * 100,    (state.repairsRate * 100).toFixed(2),    true, 2);
+  setSlider('inflation',        state.inflation * 100,      (state.inflation * 100).toFixed(1),      true, 1);
+  setSlider('rent-growth',      state.rentGrowth * 100,     (state.rentGrowth * 100).toFixed(1),     true, 1);
+  setSlider('price-growth',     state.priceGrowth * 100,    (state.priceGrowth * 100).toFixed(1),    true, 1);
+  setSlider('investment-return',state.investmentReturn * 100,(state.investmentReturn * 100).toFixed(1),true, 1);
+
+  /* Plain integer sliders */
+  setSlider('mortgage-term',    state.mortgageTermYears,    String(state.mortgageTermYears),         true, 0);
+  setSlider('horizon',          state.horizonYears,         String(state.horizonYears),              false);
+}
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  state = baseline();
+  syncInputsFromState();
+  render();
+});
+
+/* Initial paint: sync the UI to whatever CONFIG produced via baseline(),
+ * then run the first simulation. */
+syncInputsFromState();
+render();
+</script>
+</body>
+</html>
