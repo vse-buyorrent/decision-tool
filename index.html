@@ -1178,6 +1178,33 @@ footer {
             <input type="number" id="monthly-rent" class="full" value="25905" step="500">
             <p class="input-help">Total monthly rent for an equivalent apartment.</p>
           </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="security-deposit-months">Security deposit</label>
+              <span class="input-value">months of rent</span>
+            </div>
+            <input type="number" id="security-deposit-months" class="full" value="2" step="1" min="0" max="3">
+            <p class="input-help">Paid at signing, returned at end of horizon. Czech Civil Code §2254(2) caps at 3 months.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="moving-cost">Moving cost</label>
+              <span class="input-value">CZK/move</span>
+            </div>
+            <input type="number" id="moving-cost" class="full" value="8000" step="500">
+            <p class="input-help">Cost per move; grows with inflation in the model.</p>
+          </div>
+
+          <div class="input-group">
+            <div class="input-group-header">
+              <label class="input-label" for="moving-freq-months">Moving interval</label>
+              <span class="input-value">months between moves</span>
+            </div>
+            <input type="number" id="moving-freq-months" class="full" value="52" step="1" min="1" max="600">
+            <p class="input-help">Average months between moves for renters. Default: ~52 months (4.3 years).</p>
+          </div>
         </div>
 
         <!-- ============ MACRO ============ -->
@@ -1801,6 +1828,9 @@ const baseline = () => ({
   mortgageRate:  CONFIG.defaultRate,
   mortgageTermYears: CONFIG.mortgageTerm,
   monthlyRent:   CONFIG.defaultMonthlyRent,
+  securityDepositMonths: CONFIG.securityDepositMonths,
+  movingCost:    CONFIG.movingCost,
+  movingFreqMonths: CONFIG.movingFreqMonths,
   inflation:        CONFIG.inflation,
   rentGrowth:       CONFIG.rentGrowth,
   priceGrowth:      CONFIG.priceGrowth,
@@ -1937,14 +1967,14 @@ function simulate(s) {
     const buyCost          = buyCostForInvest + sellingCost;
 
     const rent = monthlyRent0 * Math.pow(1 + rg_m, m - 1);
-    const isMoveMonth = (m > 1) && ((m - 1) % CONFIG.movingFreqMonths === 0);
+    const isMoveMonth = (m > 1) && ((m - 1) % s.movingFreqMonths === 0);
     const movingCost = isMoveMonth
-      ? CONFIG.movingCost * Math.pow(1 + inf_m, m)
+      ? s.movingCost * Math.pow(1 + inf_m, m)
       : 0;
 
     let depositCF = 0;
-    if (m === 1) depositCF = monthlyRent0 * CONFIG.securityDepositMonths;
-    else if (m === H) depositCF = -rent * CONFIG.securityDepositMonths;
+    if (m === 1) depositCF = monthlyRent0 * s.securityDepositMonths;
+    else if (m === H) depositCF = -rent * s.securityDepositMonths;
 
     const rentCost = rent + depositCF + movingCost;
 
@@ -2461,6 +2491,9 @@ bindNumber('tax-local-coef', 'taxLocalCoef');
 bindNumber('tax-area-adj', 'taxAreaAdj');
 
 bindNumber('monthly-rent', 'monthlyRent');
+bindNumber('security-deposit-months', 'securityDepositMonths');
+bindNumber('moving-cost', 'movingCost');
+bindNumber('moving-freq-months', 'movingFreqMonths');
 
 bindLinked('inflation', 'inflation-num', 'inflation', 'inflation-val', 1, true, -5, 20);
 bindLinked('rent-growth', 'rent-growth-num', 'rentGrowth', 'rent-growth-val', 1, true, -5, 20);
@@ -2490,6 +2523,9 @@ function syncInputsFromState() {
   document.getElementById('tax-local-coef').value     = state.taxLocalCoef;
   document.getElementById('tax-area-adj').value       = state.taxAreaAdj;
   document.getElementById('monthly-rent').value       = state.monthlyRent;
+  document.getElementById('security-deposit-months').value = state.securityDepositMonths;
+  document.getElementById('moving-cost').value        = state.movingCost;
+  document.getElementById('moving-freq-months').value = state.movingFreqMonths;
 
   /* Sliders + their value displays. Helpers to keep three things in sync:
        slider.value, optional number companion, and the value display span. */
